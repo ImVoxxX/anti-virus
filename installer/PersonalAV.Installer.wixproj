@@ -1,0 +1,45 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+  <!--
+    Builds the PersonalAV .msi. It publishes the service, CLI and tray app first, so this one command is enough:
+
+      dotnet build installer -c Release                        (needs .NET 8 Desktop Runtime on the target PC)
+      dotnet build installer -c Release -p:SelfContained=true  (bundles the .NET runtime; larger)
+
+    The .msi lands in artifacts\installer.
+  -->
+  <PropertyGroup>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <OutputName>PersonalAV-$(Version)-x64</OutputName>
+    <OutputName Condition="'$(SelfContained)' == 'true'">$(OutputName)-selfcontained</OutputName>
+    <OutputPath>$(MSBuildThisFileDirectory)..\artifacts\installer\</OutputPath>
+    <!-- Each variant gets its own intermediate folder, or building one would clean away the other's .msi. -->
+    <Variant>framework</Variant>
+    <Variant Condition="'$(SelfContained)' == 'true'">selfcontained</Variant>
+    <IntermediateOutputPath>$(MSBuildThisFileDirectory)obj\$(Configuration)\$(Variant)\</IntermediateOutputPath>
+    <AppPublishDir>$(IntermediateOutputPath)publish\</AppPublishDir>
+    <!-- ICE60: .NET's native DLLs carry versions but no language. ICE61: same-version upgrades are allowed on purpose,
+         so rebuilding and reinstalling during development replaces the installed copy. -->
+    <SuppressIces>ICE60;ICE61</SuppressIces>
+    <DefineConstants>$(DefineConstants);PublishDir=$(AppPublishDir);RulesDir=$(MSBuildThisFileDirectory)..\rules;ProductVersion=$(Version);SelfContained=$(SelfContained)</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Util.wixext" Version="5.0.2" />
+    <PackageReference Include="WixToolset.UI.wixext" Version="5.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AppProject Include="..\src\PersonalAV.Service\PersonalAV.Service.csproj" Folder="Service" />
+    <AppProject Include="..\src\PersonalAV.Cli\PersonalAV.Cli.csproj" Folder="Cli" />
+    <AppProject Include="..\src\PersonalAV.Tray\PersonalAV.Tray.csproj" Folder="Tray" />
+  </ItemGroup>
+
+  <Target Name="PublishApps" BeforeTargets="BeforeBuild">
+    <RemoveDir Directories="$(AppPublishDir)" />
+    <!-- The apps are not ProjectReferences, so restore them here; the extra property forces a fresh evaluation. -->
+    <MSBuild Projects="@(AppProject)" Targets="Restore"
+             Properties="Configuration=$(Configuration);SelfContained=$(SelfContained);_PavRestore=true" RemoveProperties="Platform" />
+    <MSBuild Projects="@(AppProject)" Targets="Publish" BuildInParallel="true"
+             Properties="Configuration=$(Configuration);SelfContained=$(SelfContained);PublishDir=$(AppPublishDir)%(AppProject.Folder)\" RemoveProperties="Platform" />
+  </Target>
+</Project>

@@ -1,0 +1,200 @@
+<!--
+  PersonalAV per-machine installer. It does what scripts\install.ps1 does:
+  - installs the service, CLI and tray app to %ProgramFiles%\PersonalAV and puts the CLI on PATH;
+  - creates %ProgramData%\PersonalAV (SYSTEM and Administrators only) with the bundled rules;
+  - registers the PersonalAV service (LocalSystem, automatic start, restart on failure) and starts it;
+  - registers a logon task that starts the tray app elevated, without a UAC prompt, for every user.
+  Uninstalling removes all of that but keeps the data folder (database, logs, your rules, quarantine).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="PersonalAV" Manufacturer="PersonalAV" Version="$(ProductVersion)" Scope="perMachine"
+           UpgradeCode="CE0592C3-3FD8-43EE-9C52-09B2E04A54A5" InstallerVersion="500">
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of PersonalAV is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="PersonalAV.ico" SourceFile="$(PublishDir)Tray\PersonalAV.Tray.exe" />
+    <Property Id="ARPPRODUCTICON" Value="PersonalAV.ico" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+
+    <!-- Prerequisites. libyara.NET is C++/CLI and needs the Visual C++ runtime in every build. -->
+    <Property Id="VCRUNTIME">
+      <DirectorySearch Id="VcRuntimeSearch" Path="[System64Folder]" Depth="0">
+        <FileSearch Name="msvcp140.dll" MinVersion="14.0.0.0" />
+      </DirectorySearch>
+    </Property>
+    <Launch Condition="Installed OR VCRUNTIME"
+            Message="PersonalAV needs the Microsoft Visual C++ 2015-2022 Redistributable (x64). Install it from https://aka.ms/vs/17/release/vc_redist.x64.exe and run this installer again." />
+<?if $(SelfContained) != true ?>
+    <Property Id="DOTNETDESKTOP8">
+      <DirectorySearch Id="DotNetDesktopSearch" Path="[ProgramFiles64Folder]dotnet\shared\Microsoft.WindowsDesktop.App" Depth="1">
+        <FileSearch Name="PresentationFramework.dll" MinVersion="8.0.0.0" MaxVersion="8.65535.65535.65535" />
+      </DirectorySearch>
+    </Property>
+    <Launch Condition="Installed OR DOTNETDESKTOP8"
+            Message="PersonalAV needs the .NET 8 Desktop Runtime (x64). Install it from https://dotnet.microsoft.com/download/dotnet/8.0 and run this installer again." />
+<?endif?>
+    <!-- A copy installed by scripts\install.ps1 owns the same service name and folder. -->
+    <Property Id="SCRIPTINSTALL">
+      <RegistrySearch Id="ScriptServiceSearch" Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\PersonalAV"
+                      Name="ImagePath" Type="raw" Bitness="always64" />
+    </Property>
+    <Launch Condition="Installed OR WIX_UPGRADE_DETECTED OR NOT SCRIPTINSTALL"
+            Message="PersonalAV is already installed by scripts\install.ps1. Remove it first with scripts\uninstall.ps1 (your data is kept), then run this installer again." />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="PersonalAV">
+        <Directory Id="ServiceDir" Name="Service" />
+        <Directory Id="CliDir" Name="Cli" />
+        <Directory Id="TrayDir" Name="Tray" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="DataDir" Name="PersonalAV">
+        <Directory Id="DataRulesDir" Name="rules" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <Feature Id="Main" Title="PersonalAV">
+      <ComponentGroupRef Id="ServiceFiles" />
+      <ComponentGroupRef Id="CliFiles" />
+      <ComponentGroupRef Id="TrayFiles" />
+      <ComponentGroupRef Id="DataFiles" />
+    </Feature>
+
+    <!-- The tray holds its files open. It is killed right after the service stops, before any file is removed
+         or replaced, so the restart manager's "files in use" prompt would only get in the way. -->
+    <Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable" />
+    <SetProperty Id="CloseTray" Sequence="execute" Before="CloseTray"
+                 Value="&quot;[System64Folder]taskkill.exe&quot; /F /IM PersonalAV.Tray.exe" />
+    <CustomAction Id="CloseTray" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec" Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <!-- Like install.ps1: also apply the restart actions when the service stops itself with an error. -->
+    <SetProperty Id="SetFailureFlag" Sequence="execute" Before="SetFailureFlag"
+                 Value="&quot;[System64Folder]sc.exe&quot; failureflag PersonalAV 1" />
+    <CustomAction Id="SetFailureFlag" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec" Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <!-- The logon task is created and deleted with schtasks, as SYSTEM, after the task XML is installed. -->
+    <SetProperty Id="CreateTrayTask" Sequence="execute" Before="CreateTrayTask"
+                 Value="&quot;[System64Folder]schtasks.exe&quot; /Create /F /TN &quot;PersonalAV Tray&quot; /XML &quot;[#TrayTaskXml]&quot;" />
+    <SetProperty Id="DeleteTrayTask" Sequence="execute" Before="DeleteTrayTask"
+                 Value="&quot;[System64Folder]schtasks.exe&quot; /Delete /F /TN &quot;PersonalAV Tray&quot;" />
+    <SetProperty Id="RollbackTrayTask" Sequence="execute" Before="RollbackTrayTask"
+                 Value="&quot;[System64Folder]schtasks.exe&quot; /Delete /F /TN &quot;PersonalAV Tray&quot;" />
+    <CustomAction Id="CreateTrayTask" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec" Execute="deferred" Impersonate="no" Return="check" />
+    <CustomAction Id="DeleteTrayTask" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec" Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="RollbackTrayTask" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec" Execute="rollback" Impersonate="no" Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="CloseTray" After="StopServices" />
+      <Custom Action="SetFailureFlag" After="InstallServices" Condition="NOT REMOVE" />
+      <Custom Action="DeleteTrayTask" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="RollbackTrayTask" After="InstallFiles" Condition="NOT REMOVE" />
+      <Custom Action="CreateTrayTask" After="RollbackTrayTask" Condition="NOT REMOVE" />
+    </InstallExecuteSequence>
+
+    <!-- Interactive install: Welcome, Ready, Progress, Finish with an optional "Open PersonalAV". -->
+    <UIRef Id="PersonalAVUI" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Open PersonalAV" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WixShellExecTarget" Value="[#TrayExe]" />
+    <CustomAction Id="LaunchTray" BinaryRef="Wix4UtilCA_X64" DllEntry="WixShellExec" Impersonate="yes" Return="ignore" />
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="ServiceFiles" Directory="ServiceDir">
+      <Files Include="$(PublishDir)Service\**">
+        <Exclude Files="$(PublishDir)Service\PersonalAV.Service.exe" />
+        <Exclude Files="$(PublishDir)Service\**\*.pdb" />
+      </Files>
+      <Component Id="ServiceExe">
+        <File Id="ServiceExe" Source="$(PublishDir)Service\PersonalAV.Service.exe" KeyPath="yes" />
+        <ServiceInstall Id="PersonalAVService" Name="PersonalAV" DisplayName="PersonalAV"
+                        Description="PersonalAV on-demand malware scanner." Type="ownProcess" Start="auto"
+                        ErrorControl="normal" Account="LocalSystem" Vital="yes">
+          <!-- Restart after 5 s on every failure; reset the count after a day. -->
+          <util:ServiceConfig FirstFailureActionType="restart" SecondFailureActionType="restart"
+                              ThirdFailureActionType="restart" RestartServiceDelayInSeconds="5" ResetPeriodInDays="1" />
+        </ServiceInstall>
+        <ServiceControl Id="PersonalAVService" Name="PersonalAV" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="CliFiles" Directory="CliDir">
+      <Files Include="$(PublishDir)Cli\**">
+        <Exclude Files="$(PublishDir)Cli\pav.exe" />
+        <Exclude Files="$(PublishDir)Cli\**\*.pdb" />
+      </Files>
+      <Component Id="CliExe">
+        <File Id="CliExe" Source="$(PublishDir)Cli\pav.exe" KeyPath="yes" />
+        <Environment Id="CliOnPath" Name="PATH" Value="[CliDir]" Part="last" System="yes" Action="set" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="TrayFiles" Directory="TrayDir">
+      <Files Include="$(PublishDir)Tray\**">
+        <Exclude Files="$(PublishDir)Tray\PersonalAV.Tray.exe" />
+        <Exclude Files="$(PublishDir)Tray\**\*.pdb" />
+      </Files>
+      <Component Id="TrayExe">
+        <File Id="TrayExe" Source="$(PublishDir)Tray\PersonalAV.Tray.exe" KeyPath="yes">
+          <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="PersonalAV"
+                    Description="Scan your PC and manage quarantined files" WorkingDirectory="TrayDir"
+                    Icon="PersonalAV.ico" Advertise="yes" />
+        </File>
+      </Component>
+      <Component Id="TrayTask">
+        <File Id="TrayTaskXml" Source="PersonalAV.Tray.task.xml" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="DataFiles" Directory="DataRulesDir">
+      <!-- Same lock-down as install.ps1: inheritance off, SYSTEM and Administrators only. -->
+      <Component Id="DataFolder" Directory="DataDir" Guid="6F0F0B7E-3C55-4C1B-9E54-2C7A5B0C8D11">
+        <CreateFolder>
+          <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)" />
+        </CreateFolder>
+      </Component>
+      <!-- Bundled rules are replaced on upgrade; other files in the rules folder are left alone. -->
+      <Files Include="$(RulesDir)\*.yar" />
+    </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <!-- WixUI_Minimal without the license page. -->
+    <UI Id="PersonalAVUI">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ResumeDlg" />
+      <DialogRef Id="UserExit" />
+      <DialogRef Id="WelcomeDlg" />
+      <DialogRef Id="MaintenanceWelcomeDlg" />
+      <DialogRef Id="MaintenanceTypeDlg" />
+      <DialogRef Id="VerifyReadyDlg" />
+
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchTray" Order="1"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
+
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="1" Condition="NOT Installed" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Order="2" Condition="Installed" />
+
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg" />
+    </UI>
+    <UIRef Id="WixUI_Common" />
+  </Fragment>
+</Wix>

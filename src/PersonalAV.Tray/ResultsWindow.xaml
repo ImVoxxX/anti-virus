@@ -1,0 +1,28 @@
+<Window x:Class="PersonalAV.Tray.ResultsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="PersonalAV - Scan results" Width="860" Height="520" MinWidth="560" MinHeight="320"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Top">
+            <TextBlock x:Name="StateText" FontSize="18" FontWeight="SemiBold" Text="Loading..." />
+            <TextBlock x:Name="CountsText" Margin="0,4,0,0" />
+            <TextBlock x:Name="CurrentText" Margin="0,4,0,0" Foreground="Gray" TextTrimming="CharacterEllipsis" />
+            <ProgressBar x:Name="Progress" Height="4" Margin="0,8,0,0" IsIndeterminate="False" />
+            <StackPanel Orientation="Horizontal" Margin="0,12,0,12">
+                <Button x:Name="CancelButton" Content="Cancel scan" Click="Cancel_Click" />
+                <Button Content="Refresh" Click="Refresh_Click" />
+            </StackPanel>
+            <TextBlock Text="Recent detections" FontWeight="SemiBold" Margin="0,0,0,4" />
+        </StackPanel>
+        <DataGrid x:Name="Detections">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="When" Binding="{Binding DetectedAt, StringFormat=yyyy-MM-dd HH:mm}" Width="120" />
+                <DataGridTextColumn Header="Threat" Binding="{Binding ThreatName}" Width="200" />
+                <DataGridTextColumn Header="Engine" Binding="{Binding Engine}" Width="60" />
+                <DataGridTextColumn Header="Action" Binding="{Binding Action}" Width="110" />
+                <DataGridTextColumn Header="Path" Binding="{Binding Path}" Width="*" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>
