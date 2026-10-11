@@ -10,5 +10,6 @@
     <SelfContained>false</SelfContained>
     <Product>PersonalAV</Product>
     <Version>0.1.0</Version>
+    <Copyright>Copyright (c) 2026 Nicolas Benedetti</Copyright>
   </PropertyGroup>
 </Project>

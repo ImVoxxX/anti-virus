@@ -181,3 +181,7 @@ Checked by hand after installing:
 - [x] A clean Windows install produces zero detections
 - [x] Service starts after reboot and recovers after being killed
 - [x] A non-admin process cannot send commands over the pipe
+
+## License
+
+MIT. See [LICENSE](LICENSE). Third-party components (YARA via libyara.NET, Serilog, WiX, the .NET libraries) keep their own licenses.
