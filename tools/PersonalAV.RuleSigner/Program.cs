@@ -174,7 +174,7 @@ static int Release(string privateKeyPath, string? notes, string? versionText, st
     File.WriteAllBytes(manifestPath, bytes);
     File.WriteAllText(signaturePath, signature + "\n");
 
-    Console.WriteLine($"Signed app\\latest.json for PersonalAV {v}. Upload these files with exactly these names:");
+    Console.WriteLine($"Signed app\\latest.json for PersonalAV {v} (tag {tag}). Upload these files with exactly these names:");
     uploads.ForEach(u => Console.WriteLine("  " + u));
     Console.WriteLine("Then continue with your publishing notes.");
     return 0;
