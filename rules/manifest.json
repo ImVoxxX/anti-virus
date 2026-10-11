@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "published": "2026-10-11T01:30:46.3821681+00:00",
+  "files": [
+    {
+      "name": "eicar.yar",
+      "sha256": "dd156cd240a716bb497016e5d078ad21e42bff7a4c198ffc2e0bc9375dd4d50b",
+      "size": 580
+    },
+    {
+      "name": "personalav_test.yar",
+      "sha256": "cdc3f5a1e95b5180b591d30eed438d0d6b208b888577fe686e9273e71f389ec6",
+      "size": 713
+    }
+  ]
+}

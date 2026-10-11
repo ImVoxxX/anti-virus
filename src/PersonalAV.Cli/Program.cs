@@ -15,7 +15,8 @@ const string Usage = """
       pav delete <id>                    Permanently delete a quarantined file
       pav reload-rules                   Recompile the YARA rules folder
       pav import-hashes <file>           Add SHA-256 hashes (plain list, MalwareBazaar CSV, or .zip)
-      pav info                           Show engine statistics
+      pav update                         Download new rules and hashes now and show the result
+      pav info                           Show engine statistics and definition update status
       pav testfile <path>                Write a harmless file that the bundled test rule detects
     """;
 
@@ -131,7 +132,24 @@ try
             {
                 Console.WriteLine($"  skipped {file}: {error}");
             }
+            PrintUpdateStatus(Check(await Send(new PipeRequest(Commands.GetUpdateStatus))).DataAs<UpdateStatus>()!);
             return 0;
+        }
+        case "update":
+        {
+            var before = Check(await Send(new PipeRequest(Commands.GetUpdateStatus))).DataAs<UpdateStatus>()!;
+            var started = Check(await Send(new PipeRequest(Commands.CheckUpdates))).Data?.GetProperty("started").GetBoolean() == true;
+            Console.WriteLine(started ? "Checking for definition updates..." : "A check is already running; waiting for it...");
+            // Done once the hash feed (checked last) has a newer timestamp and nothing is running.
+            UpdateStatus status;
+            do
+            {
+                await Task.Delay(500);
+                status = Check(await Send(new PipeRequest(Commands.GetUpdateStatus))).DataAs<UpdateStatus>()!;
+            }
+            while (status.Checking || status.Hashes.CheckedAt == before.Hashes.CheckedAt);
+            PrintUpdateStatus(status);
+            return status.Rules.Error is null && status.Hashes.Error is null ? 0 : 1;
         }
         case "testfile":
         {
@@ -214,6 +232,31 @@ static void PrintStatus(ScanStatus s)
     if (s.Message is not null)
     {
         Console.WriteLine($"  {s.Message}");
+    }
+}
+
+static void PrintUpdateStatus(UpdateStatus u)
+{
+    PrintSource("Rule updates:  ", u.Rules);
+    PrintSource("Hash updates:  ", u.Hashes);
+    Console.WriteLine(u.Checking
+        ? "               checking now"
+        : u.NextCheck is { } next
+            ? $"               next automatic check {next.ToLocalTime():yyyy-MM-dd HH:mm}"
+            : "               automatic checks are off (Updates:Enabled)");
+
+    static void PrintSource(string label, DefinitionSourceStatus s)
+    {
+        if (s.CheckedAt is null)
+        {
+            Console.WriteLine(label + "never checked");
+            return;
+        }
+        Console.WriteLine($"{label}checked {s.CheckedAt.Value.ToLocalTime():yyyy-MM-dd HH:mm}: " + (s.Error is null ? s.Result : "FAILED: " + s.Error));
+        if (s.Error is not null && s.Result is not null)
+        {
+            Console.WriteLine($"               last success: {s.Result}");
+        }
     }
 }
 

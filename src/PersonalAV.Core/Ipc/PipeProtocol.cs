@@ -33,6 +33,8 @@ public static class Commands
     public const string ReloadRules = "ReloadRules";
     public const string ImportHashes = "ImportHashes";
     public const string GetEngineInfo = "GetEngineInfo";
+    public const string CheckUpdates = "CheckUpdates";
+    public const string GetUpdateStatus = "GetUpdateStatus";
 }
 
 /// <param name="Command">One of <see cref="Commands"/>.</param>

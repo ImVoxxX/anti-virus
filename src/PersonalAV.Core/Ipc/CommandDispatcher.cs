@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PersonalAV.Core.Quarantine;
 using PersonalAV.Core.Scanning;
+using PersonalAV.Core.Updates;
 
 namespace PersonalAV.Core.Ipc;
 
@@ -13,16 +14,18 @@ public sealed class CommandDispatcher
     private readonly AvDatabase _db;
     private readonly YaraRuleSet _yara;
     private readonly AppPaths _paths;
+    private readonly DefinitionUpdater? _updates;
     private readonly ILogger _logger;
 
     public CommandDispatcher(ScanCoordinator scans, QuarantineStore quarantine, AvDatabase db, YaraRuleSet yara,
-        AppPaths paths, ILogger<CommandDispatcher>? logger = null)
+        AppPaths paths, DefinitionUpdater? updates = null, ILogger<CommandDispatcher>? logger = null)
     {
         _scans = scans;
         _quarantine = quarantine;
         _db = db;
         _yara = yara;
         _paths = paths;
+        _updates = updates;
         _logger = logger ?? NullLogger<CommandDispatcher>.Instance;
     }
 
@@ -47,6 +50,8 @@ public sealed class CommandDispatcher
                 Commands.ReloadRules => PipeResponse.Success(_yara.Load(_paths.Rules)),
                 Commands.ImportHashes => ImportHashes(request),
                 Commands.GetEngineInfo => PipeResponse.Success(EngineInfo()),
+                Commands.CheckUpdates => CheckUpdates(),
+                Commands.GetUpdateStatus => PipeResponse.Success(Updater().GetStatus()),
                 _ => PipeResponse.Failure($"unknown command '{request.Command}'"),
             };
         }
@@ -62,6 +67,15 @@ public sealed class CommandDispatcher
         var id = _scans.TryStart(request.Kind ?? ScanKind.Quick, request.Path, out var error);
         return id is null ? PipeResponse.Failure(error!) : PipeResponse.Success(new { ScanId = id });
     }
+
+    /// <summary>Starts a check in the background; poll GetUpdateStatus until Checking is false.</summary>
+    private PipeResponse CheckUpdates()
+    {
+        var started = Updater().RequestCheck();
+        return PipeResponse.Success(new { Started = started });
+    }
+
+    private DefinitionUpdater Updater() => _updates ?? throw new InvalidOperationException("updates are not available");
 
     private PipeResponse Delete(PipeRequest request)
     {

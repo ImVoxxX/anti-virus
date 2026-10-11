@@ -53,6 +53,10 @@ public sealed class AvDatabase
                 size           INTEGER NOT NULL,
                 original_sddl  TEXT
             );
+            CREATE TABLE IF NOT EXISTS settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            ) WITHOUT ROWID;
             """);
         ImportHashes(new[] { (EicarSha256, (string?)"EICAR-Test-File") }, "builtin");
     }
@@ -100,6 +104,33 @@ public sealed class AvDatabase
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM hashes";
         return (long)cmd.ExecuteScalar()!;
+    }
+
+    // ---- settings (small key/value state, such as definition update progress) ----
+
+    public string? GetSetting(string key)
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT value FROM settings WHERE key = $key";
+        cmd.Parameters.AddWithValue("$key", key);
+        return cmd.ExecuteScalar() as string;
+    }
+
+    /// <summary>Stores a value; null removes the key.</summary>
+    public void SetSetting(string key, string? value)
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = value is null
+            ? "DELETE FROM settings WHERE key = $key"
+            : "INSERT INTO settings (key, value) VALUES ($key, $value) ON CONFLICT(key) DO UPDATE SET value = excluded.value";
+        cmd.Parameters.AddWithValue("$key", key);
+        if (value is not null)
+        {
+            cmd.Parameters.AddWithValue("$value", value);
+        }
+        cmd.ExecuteNonQuery();
     }
 
     // ---- detections ----

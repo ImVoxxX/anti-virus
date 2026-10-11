@@ -20,6 +20,8 @@ public sealed class AppPaths
     public string Logs => Path.Combine(Root, "logs");
     public string Rules => Path.Combine(Root, "rules");
     public string Quarantine => Path.Combine(Root, "quarantine");
+    /// <summary>Scratch space for definition updates (downloads are staged and test-compiled here).</summary>
+    public string Updates => Path.Combine(Root, "updates");
     public string Database => Path.Combine(Root, "personalav.db");
     public string QuarantineKey => Path.Combine(Quarantine, "quarantine.key");
 

@@ -17,16 +17,27 @@ public partial class MainWindow : Window
     private static readonly Brush Offline = Frozen(0x61, 0x61, 0x61);
 
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
+    private int _ticks;
+    private bool _updateRunning;
 
     public MainWindow()
     {
         InitializeComponent();
-        _timer.Tick += async (_, _) => await RefreshStatus();
+        _timer.Tick += async (_, _) =>
+        {
+            await RefreshStatus();
+            // Update status changes rarely, except while a check runs.
+            if (_updateRunning || ++_ticks % 15 == 0)
+            {
+                await RefreshUpdates();
+            }
+        };
         Loaded += async (_, _) =>
         {
             _timer.Start();
             await RefreshStatus();
             await RefreshEngine();
+            await RefreshUpdates();
         };
         Closed += (_, _) => _timer.Stop();
     }
@@ -100,6 +111,47 @@ public partial class MainWindow : Window
             + (info.YaraFailedFiles.Count == 0 ? "" : $", {info.YaraFailedFiles.Count} file(s) failed to compile");
     }
 
+    private async Task RefreshUpdates()
+    {
+        var response = await ServiceApi.TrySend(new PipeRequest(Commands.GetUpdateStatus), quiet: true);
+        if (response is not { Ok: true } || response.DataAs<UpdateStatus>() is not { } u)
+        {
+            UpdatesText.Text = "-";
+            UpdateButton.IsEnabled = false;
+            return;
+        }
+
+        bool finished = _updateRunning && !u.Checking;
+        _updateRunning = u.Checking;
+        UpdateButton.IsEnabled = !u.Checking;
+        bool failed = u.Rules.Error is not null || u.Hashes.Error is not null;
+        UpdatesText.Foreground = failed && !u.Checking ? Attention : SystemColors.ControlTextBrush;
+        if (u.Checking)
+        {
+            UpdatesText.Text = "Checking for updates...";
+        }
+        else if (u.Hashes.CheckedAt is null && u.Rules.CheckedAt is null)
+        {
+            UpdatesText.Text = "Not checked yet." + Next(u);
+        }
+        else
+        {
+            var last = new[] { u.Rules.CheckedAt, u.Hashes.CheckedAt }.Max()!.Value;
+            UpdatesText.Text = $"Rules: {Describe(u.Rules)}\nHashes: {Describe(u.Hashes)}\nChecked {last.ToLocalTime():yyyy-MM-dd HH:mm}." + Next(u);
+        }
+
+        if (finished)
+        {
+            await RefreshEngine();
+        }
+
+        static string Describe(DefinitionSourceStatus s) =>
+            s.Error is not null ? "failed, " + s.Error : s.Result ?? "not checked";
+
+        static string Next(UpdateStatus u) =>
+            u.NextCheck is { } next ? $" Next check {next.ToLocalTime():HH:mm}." : u.AutomaticChecks ? "" : " Automatic checks are off.";
+    }
+
     private void SetBand(Brush brush, string title, string detail)
     {
         StatusBand.Background = brush;
@@ -112,6 +164,10 @@ public partial class MainWindow : Window
         QuickButton.IsEnabled = FullButton.IsEnabled = FolderButton.IsEnabled = serviceUp && !running;
         CancelButton.IsEnabled = serviceUp && running;
         ImportButton.IsEnabled = ReloadButton.IsEnabled = serviceUp;
+        if (!serviceUp)
+        {
+            UpdateButton.IsEnabled = false;
+        }
         if (!running)
         {
             Progress.IsIndeterminate = false;
@@ -143,6 +199,23 @@ public partial class MainWindow : Window
     {
         await ServiceApi.TrySend(new PipeRequest(Commands.CancelScan));
         await RefreshStatus();
+    }
+
+    private async void Update_Click(object sender, RoutedEventArgs e)
+    {
+        UpdateButton.IsEnabled = false;
+        var response = await ServiceApi.TrySend(new PipeRequest(Commands.CheckUpdates));
+        if (response is { Ok: true })
+        {
+            _updateRunning = true;
+            UpdatesText.Foreground = SystemColors.ControlTextBrush;
+            UpdatesText.Text = "Checking for updates...";
+        }
+        else
+        {
+            UpdateButton.IsEnabled = true;
+            EngineStatus.Text = response?.Error ?? "Could not start the update check.";
+        }
     }
 
     private async void Import_Click(object sender, RoutedEventArgs e)

@@ -2,6 +2,7 @@ using PersonalAV.Core;
 using PersonalAV.Core.Ipc;
 using PersonalAV.Core.Quarantine;
 using PersonalAV.Core.Scanning;
+using PersonalAV.Core.Updates;
 using PersonalAV.Service;
 using Serilog;
 
@@ -20,6 +21,8 @@ Log.Logger = new LoggerConfiguration()
 try
 {
     var builder = Host.CreateApplicationBuilder(args);
+    // Machine settings that survive reinstalls and upgrades (the data folder is admin-only).
+    builder.Configuration.AddJsonFile(Path.Combine(paths.Root, "settings.json"), optional: true, reloadOnChange: false);
     builder.Services.AddWindowsService(o => o.ServiceName = AppPaths.AppName);
     builder.Services.AddSerilog();
 
@@ -34,8 +37,17 @@ try
     builder.Services.AddSingleton(sp => new ScanEngine(sp.GetRequiredService<AvDatabase>(), sp.GetRequiredService<YaraRuleSet>()));
     builder.Services.AddSingleton<QuarantineStore>();
     builder.Services.AddSingleton<ScanCoordinator>();
+    builder.Services.AddSingleton(builder.Configuration.GetSection("Updates").Get<UpdateOptions>() ?? new UpdateOptions());
+    builder.Services.AddSingleton(_ =>
+    {
+        var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        http.DefaultRequestHeaders.UserAgent.ParseAdd($"PersonalAV/{typeof(Program).Assembly.GetName().Version?.ToString(3)}");
+        return http;
+    });
+    builder.Services.AddSingleton<DefinitionUpdater>();
     builder.Services.AddSingleton<CommandDispatcher>();
     builder.Services.AddHostedService<ControlService>();
+    builder.Services.AddHostedService<UpdateService>();
 
     builder.Build().Run();
 }

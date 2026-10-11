@@ -87,7 +87,8 @@ $pav = "$env:ProgramFiles\PersonalAV\Cli\pav.exe"
 & $pav delete <id>
 & $pav import-hashes full_sha256.zip
 & $pav reload-rules
-& $pav info
+& $pav update                     # download new rules and hashes now
+& $pav info                       # includes definition update status
 ```
 
 ### What gets scanned
@@ -112,7 +113,43 @@ The EICAR hash is built in. To add real malware hashes, download a MalwareBazaar
 ```
 
 Plain one-hash-per-line files, MalwareBazaar CSVs (the `signature` column becomes the threat name) and
-`.zip` archives of either are accepted. Automatic updates come in Part 2.
+`.zip` archives of either are accepted. After that, definition updates keep the blocklist current.
+
+### Definition updates
+
+The service checks for new definitions a minute after it starts and then every 6 hours. You can also click
+**Check for updates** on the dashboard or run `pav update`. Each check covers two sources, and one failing
+doesn't stop the other:
+
+- **Hashes** come from the MalwareBazaar recent feed (samples from the last 48 hours) and are added to the
+  blocklist. The download is skipped when the feed hasn't changed. A PC that stays off for more than 48 hours
+  misses the hashes published meanwhile; import a full export to catch up.
+- **YARA rules** come from PersonalAV's published rules, through a signed manifest.
+  The service checks the manifest's signature and refuses a version older than the installed one. It
+  downloads only changed files and checks each one against its signed hash. It then test-compiles them
+  together with your local rules, and only then swaps them in. A bad update never replaces working rules.
+  The service only removes files that an earlier update installed. Your own rule files are left alone, so
+  give them names that aren't used in `rules/`.
+
+Settings live in the `Updates` section of the service's `appsettings.json`. To keep your changes across
+upgrades, put them in `%ProgramData%\PersonalAV\settings.json` instead:
+
+```json
+{
+  "Updates": {
+    "Enabled": true,
+    "IntervalHours": 6,
+    "RulesToken": "",
+    "MalwareBazaarAuthKey": ""
+  }
+}
+```
+
+- `RulesToken`: leave empty unless you were given a token for downloading rules.
+- `MalwareBazaarAuthKey`: the public feed works without a key today. If abuse.ch starts requiring one, the
+  update status says so; get a free key at <https://auth.abuse.ch> and set it here.
+
+Restart the `PersonalAV` service after changing settings.
 
 ### Adding YARA rules
 

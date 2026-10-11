@@ -89,3 +89,27 @@ public sealed record QuarantineEntry
 public sealed record RuleLoadReport(int FilesLoaded, int RuleCount, IReadOnlyDictionary<string, string> FailedFiles, string? Error);
 
 public sealed record EngineInfo(long HashCount, int YaraRuleCount, int YaraFilesLoaded, IReadOnlyDictionary<string, string> YaraFailedFiles);
+
+/// <summary>State of one definition source (the signed rules manifest or the hash feed).</summary>
+public sealed record DefinitionSourceStatus
+{
+    /// <summary>When the source was last contacted, successfully or not.</summary>
+    public DateTimeOffset? CheckedAt { get; init; }
+    /// <summary>When the last check that changed something finished.</summary>
+    public DateTimeOffset? UpdatedAt { get; init; }
+    /// <summary>Rules: the installed manifest version. Hashes: the feed's Last-Modified time.</summary>
+    public string? Version { get; init; }
+    /// <summary>Outcome of the last successful check, e.g. "Up to date" or "Added 120 hashes".</summary>
+    public string? Result { get; init; }
+    /// <summary>Why the last check failed; null when it succeeded.</summary>
+    public string? Error { get; init; }
+}
+
+public sealed record UpdateStatus
+{
+    public bool AutomaticChecks { get; init; }
+    public bool Checking { get; init; }
+    public DateTimeOffset? NextCheck { get; init; }
+    public DefinitionSourceStatus Rules { get; init; } = new();
+    public DefinitionSourceStatus Hashes { get; init; } = new();
+}

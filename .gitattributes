@@ -1,0 +1,3 @@
+# Rule updates are verified byte for byte against the signed rules/manifest.json, so git must store and serve
+# these files exactly as they are, never converting line endings.
+rules/** -text
