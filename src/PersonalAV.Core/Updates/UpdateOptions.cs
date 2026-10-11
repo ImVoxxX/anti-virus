@@ -30,8 +30,17 @@ public sealed class UpdateOptions
     /// <summary>Optional free abuse.ch Auth-Key (https://auth.abuse.ch). Needed if abuse.ch stops serving the public export.</summary>
     public string? MalwareBazaarAuthKey { get; set; }
 
-    /// <summary>Public key the rules manifest must be signed with. Overridable for tests only.</summary>
-    public string RulesPublicKey { get; set; } = UpdateKeys.RulesPublicKey;
+    /// <summary>Check for new PersonalAV versions and download the installer for the "Install update" button.</summary>
+    public bool AppUpdates { get; set; } = true;
+
+    /// <summary>Signed release manifest; its signature is at the same URL plus ".sig".</summary>
+    public string ReleaseManifestUrl { get; set; } = "https://raw.githubusercontent.com/ImVoxxX/anti-virus/main/app/latest.json";
+
+    /// <summary>
+    /// Public key the manifests must be signed with. The setter is internal so configuration binding (and therefore
+    /// settings.json) can never replace the trusted key; only tests set it.
+    /// </summary>
+    public string PublisherPublicKey { get; internal set; } = UpdateKeys.PublisherPublicKey;
 
     public TimeSpan Interval => TimeSpan.FromHours(Math.Clamp(IntervalHours, 0.25, 24 * 7));
 

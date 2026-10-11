@@ -33,6 +33,7 @@ public sealed class DefinitionUpdater : IDisposable
     private readonly AppPaths _paths;
     private readonly HttpClient _http;
     private readonly UpdateOptions _options;
+    private readonly AppUpdateChecker? _app;
     private readonly ILogger _logger;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -40,14 +41,16 @@ public sealed class DefinitionUpdater : IDisposable
     private volatile bool _checking;
     private DateTimeOffset? _nextCheck;
 
+    /// <param name="app">Optional app update check, run after the definitions; null when app updates are off.</param>
     public DefinitionUpdater(AvDatabase db, YaraRuleSet yara, AppPaths paths, HttpClient http, UpdateOptions options,
-        ILogger<DefinitionUpdater>? logger = null)
+        AppUpdateChecker? app = null, ILogger<DefinitionUpdater>? logger = null)
     {
         _db = db;
         _yara = yara;
         _paths = paths;
         _http = http;
         _options = options;
+        _app = app;
         _logger = logger ?? NullLogger<DefinitionUpdater>.Instance;
     }
 
@@ -58,6 +61,7 @@ public sealed class DefinitionUpdater : IDisposable
         NextCheck = _checking ? null : _nextCheck,
         Rules = ReadStatus("rules"),
         Hashes = ReadStatus("hashes"),
+        App = _app?.GetStatus(),
     };
 
     /// <summary>Asks <see cref="RunAsync"/> to check now. Returns false if a check is already running.</summary>
@@ -119,6 +123,10 @@ public sealed class DefinitionUpdater : IDisposable
         {
             await RunSource("rules", UpdateRulesAsync, cancellationToken).ConfigureAwait(false);
             await RunSource("hashes", UpdateHashesAsync, cancellationToken).ConfigureAwait(false);
+            if (_app is not null)
+            {
+                await _app.CheckAsync(cancellationToken).ConfigureAwait(false);
+            }
             _db.SetSetting("update.last_check", FormatTime(DateTimeOffset.UtcNow));
         }
         finally
@@ -152,17 +160,20 @@ public sealed class DefinitionUpdater : IDisposable
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            var message = ex switch
-            {
-                UpdateException or InvalidDataException => ex.Message,
-                TaskCanceledException => "the download timed out",
-                HttpRequestException => "could not connect: " + ex.Message,
-                _ => ex.Message,
-            };
+            var message = DescribeFailure(ex);
             WriteStatus(source, previous with { CheckedAt = now, Error = message });
             _logger.LogWarning(ex, "Definition update ({Source}) failed: {Message}", source, message);
         }
     }
+
+    /// <summary>A failure as the user sees it in the update status.</summary>
+    internal static string DescribeFailure(Exception ex) => ex switch
+    {
+        UpdateException or InvalidDataException => ex.Message,
+        TaskCanceledException => "the download timed out",
+        HttpRequestException => "could not connect: " + ex.Message,
+        _ => ex.Message,
+    };
 
     // ---- rules ----
 
@@ -173,7 +184,7 @@ public sealed class DefinitionUpdater : IDisposable
             .ConfigureAwait(false);
         var signature = Encoding.ASCII.GetString(
             await DownloadAsync(baseUrl + RulesManifest.SignatureFileName, 4096, "rules signature", true, cancellationToken).ConfigureAwait(false));
-        var manifest = RulesManifest.ParseVerified(manifestBytes, signature, _options.RulesPublicKey);
+        var manifest = RulesManifest.ParseVerified(manifestBytes, signature, _options.PublisherPublicKey);
 
         long.TryParse(_db.GetSetting("update.rules.version"), NumberStyles.None, CultureInfo.InvariantCulture, out var installed);
         if (manifest.Version < installed)
@@ -293,8 +304,8 @@ public sealed class DefinitionUpdater : IDisposable
         {
             return new Outcome(false, "Up to date (feed unchanged)", null);
         }
-        EnsureSuccess(response, "hash feed", false);
-        var data = await ReadLimitedAsync(response.Content, MaxFeedBytes, "hash feed", cancellationToken).ConfigureAwait(false);
+        UpdateHttp.EnsureSuccess(response, "hash feed", code => Hint(false, code));
+        var data = await UpdateHttp.ReadLimitedAsync(response.Content, MaxFeedBytes, "hash feed", cancellationToken).ConfigureAwait(false);
 
         var hashes = ParseFeed(data);
         if (hashes.Count == 0)
@@ -332,61 +343,22 @@ public sealed class DefinitionUpdater : IDisposable
 
     // ---- HTTP ----
 
-    private async Task<byte[]> DownloadAsync(string url, long maxBytes, string what, bool rules, CancellationToken cancellationToken)
-    {
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        if (rules && !string.IsNullOrWhiteSpace(_options.RulesToken))
-        {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.RulesToken.Trim());
-        }
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
-            .ConfigureAwait(false);
-        EnsureSuccess(response, what, rules);
-        return await ReadLimitedAsync(response.Content, maxBytes, what, cancellationToken).ConfigureAwait(false);
-    }
+    private Task<byte[]> DownloadAsync(string url, long maxBytes, string what, bool rules, CancellationToken cancellationToken) =>
+        UpdateHttp.GetBytesAsync(_http, url, maxBytes, what, rules ? _options.RulesToken : null,
+            code => Hint(rules, code), cancellationToken);
 
-    private void EnsureSuccess(HttpResponseMessage response, string what, bool rules)
+    private string Hint(bool rules, HttpStatusCode code) => (rules, code) switch
     {
-        if (response.IsSuccessStatusCode)
-        {
-            return;
-        }
-        int code = (int)response.StatusCode;
-        var hint = (rules, response.StatusCode) switch
-        {
-            (true, HttpStatusCode.NotFound or HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden) =>
-                string.IsNullOrWhiteSpace(_options.RulesToken)
-                    ? ". Check the connection, or set Updates:RulesToken if you were given one"
-                    : ". Check that Updates:RulesToken is valid",
-            (false, HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden) =>
-                string.IsNullOrWhiteSpace(_options.MalwareBazaarAuthKey)
-                    ? ". abuse.ch now needs an Auth-Key: get a free one at https://auth.abuse.ch and set Updates:MalwareBazaarAuthKey"
-                    : ". Check that Updates:MalwareBazaarAuthKey is valid",
-            _ => "",
-        };
-        throw new UpdateException($"{what}: HTTP {code} from {response.RequestMessage?.RequestUri?.Host}{hint}");
-    }
-
-    private static async Task<byte[]> ReadLimitedAsync(HttpContent content, long maxBytes, string what, CancellationToken cancellationToken)
-    {
-        if (content.Headers.ContentLength > maxBytes)
-        {
-            throw new UpdateException($"{what} is larger than {maxBytes / (1024 * 1024)} MB");
-        }
-        await using var stream = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        using var buffer = new MemoryStream();
-        var chunk = new byte[81920];
-        int read;
-        while ((read = await stream.ReadAsync(chunk, cancellationToken).ConfigureAwait(false)) > 0)
-        {
-            buffer.Write(chunk, 0, read);
-            if (buffer.Length > maxBytes)
-            {
-                throw new UpdateException($"{what} is larger than {maxBytes / (1024 * 1024)} MB");
-            }
-        }
-        return buffer.ToArray();
-    }
+        (true, HttpStatusCode.NotFound or HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden) =>
+            string.IsNullOrWhiteSpace(_options.RulesToken)
+                ? ". Check the connection, or set Updates:RulesToken if you were given one"
+                : ". Check that Updates:RulesToken is valid",
+        (false, HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden) =>
+            string.IsNullOrWhiteSpace(_options.MalwareBazaarAuthKey)
+                ? ". abuse.ch now needs an Auth-Key: get a free one at https://auth.abuse.ch and set Updates:MalwareBazaarAuthKey"
+                : ". Check that Updates:MalwareBazaarAuthKey is valid",
+        _ => "",
+    };
 
     // ---- state ----
 
@@ -442,4 +414,8 @@ public sealed class DefinitionUpdater : IDisposable
 }
 
 /// <summary>An update failure with a message meant for the user.</summary>
-public sealed class UpdateException(string message) : Exception(message);
+public sealed class UpdateException(string message, HttpStatusCode? statusCode = null) : Exception(message)
+{
+    /// <summary>The HTTP status when the failure was an error response.</summary>
+    public HttpStatusCode? StatusCode { get; } = statusCode;
+}

@@ -112,4 +112,26 @@ public sealed record UpdateStatus
     public DateTimeOffset? NextCheck { get; init; }
     public DefinitionSourceStatus Rules { get; init; } = new();
     public DefinitionSourceStatus Hashes { get; init; } = new();
+    /// <summary>New PersonalAV versions; null when app update checks are turned off.</summary>
+    public AppUpdateStatus? App { get; init; }
+}
+
+/// <summary>State of the PersonalAV app update check.</summary>
+public sealed record AppUpdateStatus
+{
+    public string InstalledVersion { get; init; } = "";
+    /// <summary>Installer variant ("framework" or "selfcontained"); null when not installed by the .msi.</summary>
+    public string? Variant { get; init; }
+    /// <summary>Newest published version, whether or not it is newer than this one.</summary>
+    public string? LatestVersion { get; init; }
+    /// <summary>A published version newer than the installed one, or null.</summary>
+    public string? AvailableVersion { get; init; }
+    public string? Notes { get; init; }
+    public string? ReleaseUrl { get; init; }
+    public DateTimeOffset? Published { get; init; }
+    /// <summary>The verified installer for <see cref="AvailableVersion"/> is downloaded and can be installed.</summary>
+    public bool InstallerReady { get; init; }
+    public DateTimeOffset? CheckedAt { get; init; }
+    public string? Result { get; init; }
+    public string? Error { get; init; }
 }

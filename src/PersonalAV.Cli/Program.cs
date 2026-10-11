@@ -1,5 +1,6 @@
 using PersonalAV.Core;
 using PersonalAV.Core.Ipc;
+using PersonalAV.Core.Updates;
 
 const string Usage = """
     PersonalAV command-line client (run from an elevated prompt)
@@ -15,8 +16,9 @@ const string Usage = """
       pav delete <id>                    Permanently delete a quarantined file
       pav reload-rules                   Recompile the YARA rules folder
       pav import-hashes <file>           Add SHA-256 hashes (plain list, MalwareBazaar CSV, or .zip)
-      pav update                         Download new rules and hashes now and show the result
-      pav info                           Show engine statistics and definition update status
+      pav update                         Download new rules, hashes and app updates now and show the result
+      pav install-update                 Install a downloaded PersonalAV update (opens the installer)
+      pav info                           Show the version, engine statistics and update status
       pav testfile <path>                Write a harmless file that the bundled test rule detects
     """;
 
@@ -151,6 +153,14 @@ try
             PrintUpdateStatus(status);
             return status.Rules.Error is null && status.Hashes.Error is null ? 0 : 1;
         }
+        case "install-update":
+        {
+            var prepared = AppUpdatePackage.Prepare(AppPaths.Default, AppInstallInfo.Detect());
+            AppUpdatePackage.Launch(prepared, AppPaths.Default.Logs);
+            Console.WriteLine($"Opened the installer for PersonalAV {AppVersion.Format(prepared.Version)}. " +
+                              "The service restarts during the upgrade.");
+            return 0;
+        }
         case "testfile":
         {
             var path = Path.GetFullPath(Arg(1) ?? throw new UsageException("testfile needs a path"));
@@ -170,7 +180,7 @@ catch (UsageException ex)
     Console.Error.WriteLine(Usage);
     return 2;
 }
-catch (Exception ex) when (ex is ServiceUnavailableException or CommandFailedException)
+catch (Exception ex) when (ex is ServiceUnavailableException or CommandFailedException or UpdateException)
 {
     Console.Error.WriteLine(ex.Message);
     return 1;
@@ -239,6 +249,14 @@ static void PrintUpdateStatus(UpdateStatus u)
 {
     PrintSource("Rule updates:  ", u.Rules);
     PrintSource("Hash updates:  ", u.Hashes);
+    if (u.App is { } app)
+    {
+        var installed = app.InstalledVersion + (app.Variant is null ? "" : $" ({app.Variant})");
+        var line = app.Error is not null ? "check FAILED: " + app.Error
+            : app.InstallerReady ? $"{app.AvailableVersion} is ready, run \"pav install-update\""
+            : app.Result ?? "not checked yet";
+        Console.WriteLine($"PersonalAV:    {installed}; {line}");
+    }
     Console.WriteLine(u.Checking
         ? "               checking now"
         : u.NextCheck is { } next

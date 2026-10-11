@@ -1,9 +1,12 @@
+using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using PersonalAV.Core;
 using PersonalAV.Core.Ipc;
+using PersonalAV.Core.Updates;
 
 namespace PersonalAV.Tray;
 
@@ -19,10 +22,12 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
     private int _ticks;
     private bool _updateRunning;
+    private AppUpdateStatus? _app;
 
     public MainWindow()
     {
         InitializeComponent();
+        FooterText.Text = $"PersonalAV {AppVersion.Format(AppVersion.Current)}. {FooterText.Text}";
         _timer.Tick += async (_, _) =>
         {
             await RefreshStatus();
@@ -137,13 +142,15 @@ public partial class MainWindow : Window
         else
         {
             var last = new[] { u.Rules.CheckedAt, u.Hashes.CheckedAt }.Max()!.Value;
-            UpdatesText.Text = $"Rules: {Describe(u.Rules)}\nHashes: {Describe(u.Hashes)}\nChecked {last.ToLocalTime():yyyy-MM-dd HH:mm}." + Next(u);
+            var app = u.App is { } a ? $"\nApp: {(a.Error is not null ? "failed, " + a.Error : a.Result ?? "not checked")}" : "";
+            UpdatesText.Text = $"Rules: {Describe(u.Rules)}\nHashes: {Describe(u.Hashes)}{app}\nChecked {last.ToLocalTime():yyyy-MM-dd HH:mm}." + Next(u);
         }
 
         if (finished)
         {
             await RefreshEngine();
         }
+        ShowAppUpdate(u.App);
 
         static string Describe(DefinitionSourceStatus s) =>
             s.Error is not null ? "failed, " + s.Error : s.Result ?? "not checked";
@@ -151,6 +158,62 @@ public partial class MainWindow : Window
         static string Next(UpdateStatus u) =>
             u.NextCheck is { } next ? $" Next check {next.ToLocalTime():HH:mm}." : u.AutomaticChecks ? "" : " Automatic checks are off.";
     }
+
+    private void ShowAppUpdate(AppUpdateStatus? app)
+    {
+        _app = app;
+        if (app?.AvailableVersion is not { } version)
+        {
+            UpdateBanner.Visibility = Visibility.Collapsed;
+            return;
+        }
+        var state = app.InstallerReady ? null
+            : app.Variant is null ? "This copy was installed with the scripts: download the installer from the release page and run it."
+            : app.Result;
+        UpdateTitle.Text = $"PersonalAV {version} is available";
+        UpdateDetail.Text = string.Join("\n", new[] { app.Notes, state }.Where(s => !string.IsNullOrWhiteSpace(s)));
+        InstallUpdateButton.Visibility = app.InstallerReady ? Visibility.Visible : Visibility.Collapsed;
+        WhatsNewButton.Visibility = IsReleasePage(app.ReleaseUrl) ? Visibility.Visible : Visibility.Collapsed;
+        UpdateBanner.Visibility = Visibility.Visible;
+    }
+
+    private void InstallUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        var confirm = MessageBox.Show(this,
+            $"Install PersonalAV {_app?.AvailableVersion} now?\n\nThe service restarts and this window closes during the upgrade. " +
+            "Leave \"Open PersonalAV\" ticked on the installer's last page to bring it back.",
+            "Install update", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
+        if (confirm != MessageBoxResult.Yes)
+        {
+            return;
+        }
+        try
+        {
+            // Checked again here, independently of the service, right before the installer runs.
+            var prepared = AppUpdatePackage.Prepare(AppPaths.Default, AppInstallInfo.Detect());
+            AppUpdatePackage.Launch(prepared, AppPaths.Default.Logs);
+            InstallUpdateButton.IsEnabled = false;
+        }
+        catch (Exception ex) when (ex is UpdateException or IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        {
+            MessageBox.Show(this, "The update cannot be installed: " + ex.Message, "PersonalAV", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void WhatsNew_Click(object sender, RoutedEventArgs e)
+    {
+        if (IsReleasePage(_app?.ReleaseUrl))
+        {
+            // Through the shell, so the browser does not inherit this app's administrator rights.
+            var explorer = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
+            var info = new ProcessStartInfo(explorer) { UseShellExecute = false };
+            info.ArgumentList.Add(_app!.ReleaseUrl!);
+            Process.Start(info)?.Dispose();
+        }
+    }
+
+    private static bool IsReleasePage(string? url) =>
+        url is not null && url.StartsWith("https://github.com/ImVoxxX/anti-virus/", StringComparison.Ordinal);
 
     private void SetBand(Brush brush, string title, string detail)
     {
@@ -163,6 +226,8 @@ public partial class MainWindow : Window
     {
         QuickButton.IsEnabled = FullButton.IsEnabled = FolderButton.IsEnabled = serviceUp && !running;
         CancelButton.IsEnabled = serviceUp && running;
+        // The upgrade stops the service, which would end a running scan.
+        InstallUpdateButton.IsEnabled = !running;
         ImportButton.IsEnabled = ReloadButton.IsEnabled = serviceUp;
         if (!serviceUp)
         {

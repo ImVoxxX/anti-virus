@@ -1,15 +1,12 @@
 using System.Security.Cryptography;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace PersonalAV.Core.Updates;
 
 /// <summary>
 /// The list of published rule files, kept as <c>rules/manifest.json</c> in the repository and signed by
-/// <c>rules/manifest.json.sig</c>: an ECDSA P-256 / SHA-256 signature, base64, over the manifest's exact bytes.
-/// The service only acts on a manifest whose signature checks out against <see cref="UpdateKeys.RulesPublicKey"/>,
-/// so whoever hosts the files cannot change what gets installed.
+/// <c>rules/manifest.json.sig</c> (see <see cref="ManifestSigning"/>). The service only acts on a manifest whose
+/// signature checks out, so whoever hosts the files cannot change what gets installed.
 /// </summary>
 public sealed partial record RulesManifest
 {
@@ -26,18 +23,12 @@ public sealed partial record RulesManifest
 
     public required IReadOnlyList<RuleFileEntry> Files { get; init; }
 
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
-    {
-        WriteIndented = true,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    };
-
     // A bare file name: no folders, so a manifest can never write outside the rules folder.
     [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,99}\.(yar|yara)$", RegexOptions.IgnoreCase)]
     private static partial Regex SafeNameRegex();
 
     [GeneratedRegex("^[0-9a-f]{64}$")]
-    private static partial Regex Sha256Regex();
+    internal static partial Regex Sha256Regex();
 
     /// <summary>Builds a manifest from the .yar/.yara files in <paramref name="rulesDirectory"/>.</summary>
     public static RulesManifest FromDirectory(string rulesDirectory, long version, DateTimeOffset published)
@@ -50,27 +41,13 @@ public sealed partial record RulesManifest
         return new RulesManifest { Version = version, Published = published, Files = files };
     }
 
-    /// <summary>Indented JSON with LF line endings on every platform, so the signed bytes never depend on the OS.</summary>
-    public byte[] ToBytes() =>
-        System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(this, Json).ReplaceLineEndings("\n") + "\n");
+    public byte[] ToBytes() => ManifestSigning.ToCanonicalBytes(this);
 
     /// <summary>Checks the signature first, then parses and validates. Throws <see cref="InvalidDataException"/> on any problem.</summary>
     public static RulesManifest ParseVerified(byte[] manifestBytes, string signatureBase64, string publicKeyBase64)
     {
-        if (!VerifySignature(manifestBytes, signatureBase64, publicKeyBase64))
-        {
-            throw new InvalidDataException("the rules manifest signature is not valid");
-        }
-        RulesManifest? manifest;
-        try
-        {
-            manifest = JsonSerializer.Deserialize<RulesManifest>(manifestBytes, Json);
-        }
-        catch (JsonException ex)
-        {
-            throw new InvalidDataException("the rules manifest is not valid JSON: " + ex.Message);
-        }
-        if (manifest is null || manifest.Version < 1)
+        var manifest = ManifestSigning.ParseSigned<RulesManifest>(manifestBytes, signatureBase64, publicKeyBase64, "rules manifest");
+        if (manifest.Version < 1)
         {
             throw new InvalidDataException("the rules manifest has no version");
         }
@@ -89,32 +66,12 @@ public sealed partial record RulesManifest
         return manifest;
     }
 
-    public static string Sign(byte[] manifestBytes, ECDsa privateKey) =>
-        Convert.ToBase64String(privateKey.SignData(manifestBytes, HashAlgorithmName.SHA256));
+    public static string Sign(byte[] manifestBytes, ECDsa privateKey) => ManifestSigning.Sign(manifestBytes, privateKey);
 
-    public static bool VerifySignature(byte[] manifestBytes, string signatureBase64, string publicKeyBase64)
-    {
-        try
-        {
-            using var key = ECDsa.Create();
-            key.ImportSubjectPublicKeyInfo(Convert.FromBase64String(publicKeyBase64), out _);
-            return key.VerifyData(manifestBytes, Convert.FromBase64String(signatureBase64.Trim()), HashAlgorithmName.SHA256);
-        }
-        catch (FormatException)
-        {
-            return false;
-        }
-        catch (CryptographicException)
-        {
-            return false;
-        }
-    }
+    public static bool VerifySignature(byte[] manifestBytes, string signatureBase64, string publicKeyBase64) =>
+        ManifestSigning.Verify(manifestBytes, signatureBase64, publicKeyBase64);
 
-    public static string Sha256OfFile(string path)
-    {
-        using var stream = File.OpenRead(path);
-        return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
-    }
+    public static string Sha256OfFile(string path) => ManifestSigning.Sha256OfFile(path);
 }
 
 public sealed record RuleFileEntry(string Name, string Sha256, long Size);

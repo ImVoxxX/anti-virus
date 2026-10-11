@@ -21,6 +21,8 @@ public partial class App : Application
     private Forms.NotifyIcon? _icon;
     private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromSeconds(3) };
     private ScanState? _lastState;
+    private int _pollCount;
+    private string? _notifiedVersion;
     private MainWindow? _main;
     private ResultsWindow? _results;
     private QuarantineWindow? _quarantine;
@@ -61,6 +63,7 @@ public partial class App : Application
             Visible = true,
         };
         _icon.DoubleClick += (_, _) => ShowMain();
+        _icon.BalloonTipClicked += (_, _) => ShowMain();
 
         _poll.Tick += async (_, _) => await PollStatus();
         _poll.Start();
@@ -171,6 +174,31 @@ public partial class App : Application
                 $"{status.FilesScanned:N0} files scanned, {status.Detections} threats found.", icon);
         }
         _lastState = status.State;
+
+        // About once a minute (and right away), look for a new app version.
+        if (_pollCount++ % 20 == 0)
+        {
+            await PollAppUpdate();
+        }
+    }
+
+    /// <summary>Pops one balloon per new version per sign-in; clicking it opens the dashboard with the Install button.</summary>
+    private async Task PollAppUpdate()
+    {
+        var response = await ServiceApi.TrySend(new PipeRequest(Commands.GetUpdateStatus), quiet: true);
+        if (response is not { Ok: true } || response.DataAs<UpdateStatus>()?.App is not { AvailableVersion: { } version } app)
+        {
+            return;
+        }
+        // An installer that is still downloading, or not published yet, is not worth interrupting for.
+        if (version == _notifiedVersion || (!app.InstallerReady && app.Variant is not null))
+        {
+            return;
+        }
+        _notifiedVersion = version;
+        Notify($"PersonalAV {version} is available",
+            app.InstallerReady ? "Click to open PersonalAV and install it." : "Click to see what's new.",
+            Forms.ToolTipIcon.Info);
     }
 
     private void Notify(string title, string text, Forms.ToolTipIcon icon) =>

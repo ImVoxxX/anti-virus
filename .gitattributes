@@ -1,3 +1,4 @@
-# Rule updates are verified byte for byte against the signed rules/manifest.json, so git must store and serve
-# these files exactly as they are, never converting line endings.
+# Rule updates and app releases are verified byte for byte against their signed manifests (rules/manifest.json,
+# app/latest.json), so git must store and serve these files exactly as they are, never converting line endings.
 rules/** -text
+app/** -text

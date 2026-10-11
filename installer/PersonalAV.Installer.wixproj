@@ -20,7 +20,7 @@
     <!-- ICE60: .NET's native DLLs carry versions but no language. ICE61: same-version upgrades are allowed on purpose,
          so rebuilding and reinstalling during development replaces the installed copy. -->
     <SuppressIces>ICE60;ICE61</SuppressIces>
-    <DefineConstants>$(DefineConstants);PublishDir=$(AppPublishDir);RulesDir=$(MSBuildThisFileDirectory)..\rules;ProductVersion=$(Version);SelfContained=$(SelfContained)</DefineConstants>
+    <DefineConstants>$(DefineConstants);PublishDir=$(AppPublishDir);RulesDir=$(MSBuildThisFileDirectory)..\rules;ProductVersion=$(Version);SelfContained=$(SelfContained);Variant=$(Variant)</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>

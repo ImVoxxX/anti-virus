@@ -22,7 +22,7 @@ public sealed class UpdateTests : IDisposable
         {
             RulesBaseUrl = RulesUrl,
             HashFeedUrl = FeedUrl,
-            RulesPublicKey = Convert.ToBase64String(_key.ExportSubjectPublicKeyInfo()),
+            PublisherPublicKey = Convert.ToBase64String(_key.ExportSubjectPublicKeyInfo()),
         };
         _updater = new DefinitionUpdater(_env.Db, _env.Yara, _env.Paths, new HttpClient(_server), options);
         _server.Respond(FeedUrl, HttpStatusCode.OK, Feed());
@@ -43,7 +43,7 @@ public sealed class UpdateTests : IDisposable
         var manifest = RulesManifest.ParseVerified(
             File.ReadAllBytes(Path.Combine(rules, RulesManifest.FileName)),
             File.ReadAllText(Path.Combine(rules, RulesManifest.SignatureFileName)),
-            UpdateKeys.RulesPublicKey);
+            UpdateKeys.PublisherPublicKey);
 
         // Fails when a rule file changes without re-running: pav-rulesigner sign <key>
         Assert.Equal(RulesManifest.FromDirectory(rules, 0, default).Files, manifest.Files);
@@ -239,33 +239,4 @@ public sealed class UpdateTests : IDisposable
         "2026-10-10 22:40:45", "{new string('a', 64)}", "x", "y", "anonymous", "s3.exe", "exe", "application/x-dosexec", "Formbook"
         "2026-10-10 22:30:26", "{new string('b', 64)}", "x", "y", "abuse_ch", "mips", "elf", "application/x-executable", "n/a"
         """);
-
-    /// <summary>Serves canned responses by URL and records what was asked for.</summary>
-    private sealed class FakeServer : HttpMessageHandler
-    {
-        private readonly Dictionary<string, (HttpStatusCode Code, byte[] Body, string? ETag)> _routes = new();
-
-        public List<string> Requests { get; } = new();
-        public string? LastIfNoneMatch { get; private set; }
-
-        public void Respond(string url, HttpStatusCode code, byte[] body, string? etag = null) => _routes[url] = (code, body, etag);
-
-        public byte[] Body(string url) => _routes[url].Body;
-
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            var url = request.RequestUri!.ToString();
-            Requests.Add(url);
-            LastIfNoneMatch = request.Headers.IfNoneMatch.FirstOrDefault()?.ToString();
-            var response = _routes.TryGetValue(url, out var route)
-                ? new HttpResponseMessage(route.Code) { Content = new ByteArrayContent(route.Body) }
-                : new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new ByteArrayContent(Array.Empty<byte>()) };
-            if (route.ETag is not null)
-            {
-                response.Headers.ETag = System.Net.Http.Headers.EntityTagHeaderValue.Parse(route.ETag);
-            }
-            response.RequestMessage = request;
-            return Task.FromResult(response);
-        }
-    }
 }

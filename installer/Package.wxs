@@ -104,6 +104,14 @@
 
   <Fragment>
     <ComponentGroup Id="ServiceFiles" Directory="ServiceDir">
+      <!-- Tells the app update check which installer to download. A copy installed by install.ps1 has no such key,
+           so it is only told about new versions: this .msi refuses to install over it. -->
+      <Component Id="AppRegistration" Directory="INSTALLFOLDER">
+        <RegistryKey Root="HKLM" Key="SOFTWARE\PersonalAV">
+          <RegistryValue Name="Variant" Type="string" Value="$(Variant)" KeyPath="yes" />
+          <RegistryValue Name="Version" Type="string" Value="[ProductVersion]" />
+        </RegistryKey>
+      </Component>
       <Files Include="$(PublishDir)Service\**">
         <Exclude Files="$(PublishDir)Service\PersonalAV.Service.exe" />
         <Exclude Files="$(PublishDir)Service\**\*.pdb" />

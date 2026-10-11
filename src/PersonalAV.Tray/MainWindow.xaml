@@ -25,9 +25,24 @@
             </StackPanel>
         </Border>
 
+        <!-- Shown when a newer PersonalAV version is published. -->
+        <Border x:Name="UpdateBanner" DockPanel.Dock="Top" Background="#E3F2FD" BorderBrush="#90CAF9"
+                BorderThickness="0,0,0,1" Padding="20,12" Visibility="Collapsed">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="InstallUpdateButton" Content="Install update" Click="InstallUpdate_Click" />
+                    <Button x:Name="WhatsNewButton" Content="What's new" Click="WhatsNew_Click" Margin="0" />
+                </StackPanel>
+                <StackPanel Margin="0,0,12,0">
+                    <TextBlock x:Name="UpdateTitle" FontWeight="SemiBold" />
+                    <TextBlock x:Name="UpdateDetail" Margin="0,2,0,0" TextWrapping="Wrap" Foreground="#37474F" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
         <Border DockPanel.Dock="Bottom" Padding="20,12" Background="#F5F5F5">
             <DockPanel>
-                <TextBlock DockPanel.Dock="Right" VerticalAlignment="Center" Foreground="Gray"
+                <TextBlock x:Name="FooterText" DockPanel.Dock="Right" VerticalAlignment="Center" Foreground="Gray"
                            Text="On-demand scanning. Microsoft Defender stays your real-time protection." TextWrapping="Wrap"
                            MaxWidth="260" TextAlignment="Right" FontSize="11" />
                 <StackPanel Orientation="Horizontal">

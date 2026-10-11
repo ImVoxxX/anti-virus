@@ -15,7 +15,9 @@ There is no real-time protection yet.
 | `src/PersonalAV.Tray` | WPF tray app with a dashboard window: status, Quick/Full/folder scans with progress, hash import, rule reload, Results, Quarantine |
 | `tests/PersonalAV.Tests` | xUnit tests for the enumerator, detection, quarantine round-trip and pipe protocol |
 | `installer/` | WiX project that builds the `.msi` installer |
-| `rules/` | Bundled YARA rules (EICAR and a harmless PersonalAV test marker) |
+| `tools/PersonalAV.RuleSigner` | Maintainer tooling, not part of the app |
+| `rules/` | Bundled YARA rules (EICAR and a harmless PersonalAV test marker), with their signed manifest |
+| `app/` | Signed information about the latest version, read by installed copies |
 | `scripts/` | `install.ps1` / `uninstall.ps1` (install from source without an `.msi`) |
 
 Runtime data lives in `%ProgramData%\PersonalAV` (`personalav.db`, `rules\`, `quarantine\`, `logs\`),
@@ -37,11 +39,11 @@ dotnet test
 Build the `.msi`. It publishes the apps itself, so this is the only command needed:
 
 ```powershell
-dotnet build installer -c Release                         # artifacts\installer\PersonalAV-0.1.0-x64.msi (about 4 MB)
+dotnet build installer -c Release                         # artifacts\installer\PersonalAV-0.2.0-x64.msi (about 4 MB)
 dotnet build installer -c Release -p:SelfContained=true   # ...-x64-selfcontained.msi, bundles .NET (about 90 MB)
 ```
 
-Double-click the `.msi`, or run `msiexec /i PersonalAV-0.1.0-x64.msi /qn` from an elevated prompt for a silent install.
+Double-click the `.msi`, or run `msiexec /i PersonalAV-0.2.0-x64.msi /qn` from an elevated prompt for a silent install.
 It installs to `%ProgramFiles%\PersonalAV`, creates and starts the `PersonalAV` service (automatic start, restarts
 on failure), adds `pav` to the system `PATH`, adds a **PersonalAV** Start menu entry, and registers a logon task that
 starts the tray app elevated for every administrator. The last page offers to open PersonalAV right away.
@@ -87,8 +89,9 @@ $pav = "$env:ProgramFiles\PersonalAV\Cli\pav.exe"
 & $pav delete <id>
 & $pav import-hashes full_sha256.zip
 & $pav reload-rules
-& $pav update                     # download new rules and hashes now
-& $pav info                       # includes definition update status
+& $pav update                     # download new rules, hashes and app updates now
+& $pav install-update             # install a downloaded PersonalAV update
+& $pav info                       # version, engine statistics and update status
 ```
 
 ### What gets scanned
@@ -140,7 +143,8 @@ upgrades, put them in `%ProgramData%\PersonalAV\settings.json` instead:
     "Enabled": true,
     "IntervalHours": 6,
     "RulesToken": "",
-    "MalwareBazaarAuthKey": ""
+    "MalwareBazaarAuthKey": "",
+    "AppUpdates": true
   }
 }
 ```
@@ -148,8 +152,26 @@ upgrades, put them in `%ProgramData%\PersonalAV\settings.json` instead:
 - `RulesToken`: leave empty unless you were given a token for downloading rules.
 - `MalwareBazaarAuthKey`: the public feed works without a key today. If abuse.ch starts requiring one, the
   update status says so; get a free key at <https://auth.abuse.ch> and set it here.
+- `AppUpdates`: set to `false` to stop checking for new PersonalAV versions.
 
 Restart the `PersonalAV` service after changing settings.
+
+### App updates
+
+The same check also looks for a new PersonalAV version, described by a signed manifest. When one is
+available, the service downloads its installer into `%ProgramData%\PersonalAV\updates\app`. It keeps the
+file only if its size and SHA-256 match the signed manifest. The tray then shows a notification, and the
+dashboard shows the new version with **Install update** and **What's new** buttons. Nothing installs on its
+own.
+
+**Install update**, or `pav install-update`, checks everything again: the manifest's signature, the
+installer's hash, and that the version is newer. Only then does it open the installer. The upgrade stops the
+service and closes the tray; leave **Open PersonalAV** ticked on the installer's last page to bring it back.
+A log of each upgrade goes to `%ProgramData%\PersonalAV\logs\upgrade-<version>.log`.
+
+The update installer matches how this copy was installed (with or without bundled .NET). A copy installed
+with `install.ps1` is only told about new versions, because the `.msi` won't install over it. Version 0.1.0
+has no update check, so the first upgrade from it is by hand.
 
 ### Adding YARA rules
 

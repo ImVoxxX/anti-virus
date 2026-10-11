@@ -22,6 +22,8 @@ public sealed class AppPaths
     public string Quarantine => Path.Combine(Root, "quarantine");
     /// <summary>Scratch space for definition updates (downloads are staged and test-compiled here).</summary>
     public string Updates => Path.Combine(Root, "updates");
+    /// <summary>Verified app installers and the signed manifest they came with.</summary>
+    public string AppUpdates => Path.Combine(Updates, "app");
     public string Database => Path.Combine(Root, "personalav.db");
     public string QuarantineKey => Path.Combine(Quarantine, "quarantine.key");
 
