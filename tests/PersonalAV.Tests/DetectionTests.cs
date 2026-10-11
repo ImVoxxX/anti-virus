@@ -49,15 +49,16 @@ public sealed class DetectionTests : IDisposable
         Assert.Null(report.Error);
         Assert.Empty(report.FailedFiles);
         Assert.True(report.RuleCount >= 2);
-        // The bundled test rule must match the marker the CLI writes.
-        Assert.Contains(TestEnvironment.MarkerRule, _env.Yara.Match(Encoding.ASCII.GetBytes("x " + TestMarker.Value + " y")));
+        // The bundled test rule must match the marker the CLI writes, but not a file that only mentions it.
+        Assert.Contains(TestEnvironment.MarkerRule, _env.Yara.Match(Encoding.ASCII.GetBytes(TestMarker.Value + "\r\nharmless")));
+        Assert.Empty(_env.Yara.Match(Encoding.ASCII.GetBytes("x " + TestMarker.Value + " y")));
     }
 
     [Fact]
     public void Detects_by_yara_rule()
     {
         _env.LoadMarkerRule();
-        var path = _env.WriteFile("marked.txt", "prefix " + TestMarker.Value + " suffix");
+        var path = _env.WriteFile("marked.txt", TestMarker.Value + " suffix");
 
         var verdict = _env.Engine.ScanFile(path);
 
@@ -78,6 +79,41 @@ public sealed class DetectionTests : IDisposable
         Assert.Equal(VerdictKind.Detected, verdict.Kind);
         Assert.Equal("hash", verdict.Engine);
         Assert.Equal("Test.Hash", verdict.ThreatName);
+    }
+
+    [Theory]
+    // Catalog-signed only, like the WinSxS DLL that a MalwareBazaar export flagged.
+    [InlineData(@"%SystemRoot%\System32\where.exe", "catalog-signed")]
+    // Signature embedded in the file.
+    [InlineData(@"%ProgramFiles%\dotnet\dotnet.exe", "O=Microsoft Corporation")]
+    public void Blocklisted_hash_on_a_validly_signed_file_is_not_detected(string signedFile, string expectedReason)
+    {
+        var copy = Path.Combine(_env.Work, Path.GetFileName(signedFile));
+        File.Copy(Environment.ExpandEnvironmentVariables(signedFile), copy);
+        var sha = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(copy)));
+        _env.Db.ImportHashes(new[] { (sha, (string?)"Test.Hash") }, "test");
+
+        var verdict = _env.Engine.ScanFile(copy);
+
+        Assert.Equal(VerdictKind.Clean, verdict.Kind);
+        Assert.Equal("Test.Hash", verdict.ThreatName);
+        Assert.Contains(expectedReason, verdict.Reason);
+    }
+
+    [Fact]
+    public void Unsigned_or_tampered_file_has_no_trusted_signer()
+    {
+        var text = _env.WriteFile("plain.txt", "not signed");
+        var tampered = Path.Combine(_env.Work, "tampered.exe");
+        File.Copy(Path.Combine(Environment.SystemDirectory, "where.exe"), tampered);
+        using (var stream = File.OpenWrite(tampered))
+        {
+            stream.Seek(-1, SeekOrigin.End);
+            stream.WriteByte(0x5A);
+        }
+
+        Assert.Null(SignatureCheck.TrustedSigner(text));
+        Assert.Null(SignatureCheck.TrustedSigner(tampered));
     }
 
     [Fact]

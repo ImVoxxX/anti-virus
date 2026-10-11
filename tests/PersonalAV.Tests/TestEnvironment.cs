@@ -39,7 +39,7 @@ public sealed class TestEnvironment : IDisposable
                 strings:
                     $marker = "{{TestMarker.Value}}"
                 condition:
-                    $marker
+                    $marker at 0 and filesize < 256
             }
             """);
         return Yara.Load(Paths.Rules);

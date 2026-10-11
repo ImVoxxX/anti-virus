@@ -136,7 +136,8 @@ try
         case "testfile":
         {
             var path = Path.GetFullPath(Arg(1) ?? throw new UsageException("testfile needs a path"));
-            File.WriteAllText(path, "This harmless file contains the PersonalAV test marker: " + TestMarker.Value + Environment.NewLine);
+            // The bundled rule only matches the marker at the start of a file under 256 bytes.
+            File.WriteAllText(path, TestMarker.Value + Environment.NewLine + "This harmless file is the PersonalAV test marker." + Environment.NewLine);
             Console.WriteLine($"Wrote {path}");
             return 0;
         }

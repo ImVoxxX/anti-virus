@@ -116,7 +116,7 @@ public sealed class QuarantineTests : IDisposable
     {
         _env.LoadMarkerRule();
         _env.WriteFile(@"tree\clean.txt", "fine");
-        var bad = _env.WriteFile(@"tree\nested\bad.txt", "x " + TestMarker.Value);
+        var bad = _env.WriteFile(@"tree\nested\bad.txt", TestMarker.Value + " x");
         var scans = new ScanCoordinator(_env.Engine, _env.Quarantine, _env.Db, _env.Paths);
 
         var id = scans.TryStart(ScanKind.Path, Path.Combine(_env.Work, "tree"), out var error);

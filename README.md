@@ -98,6 +98,9 @@ $pav = "$env:ProgramFiles\PersonalAV\Cli\pav.exe"
 - **Full scan:** every fixed drive.
 - Files over 100 MB, symlinks and junctions, OneDrive online-only placeholders, and locked or
   access-denied files are skipped and counted, never fatal. Detections are quarantined automatically.
+- A hash or YARA match on a file with a valid, trusted Authenticode signature (embedded or through a Windows
+  catalog) is not a detection: it is logged as "Not quarantining ..." in the service log instead. Hash feeds
+  contain genuine Windows files, and quarantining those breaks the system.
 
 ### Seeding the hash blocklist
 
@@ -135,9 +138,9 @@ Until Part 2 adds exclusions, a restored file is detected again on the next scan
 
 Checked by hand after installing:
 
-- [ ] EICAR (or the test marker) in Downloads is detected by Quick scan and Full scan
-- [ ] Detected file is quarantined, cannot be opened in place, and restores to its original path intact
-- [ ] A Full scan of `C:\` finishes without crashing on locked, huge or permission-denied files
-- [ ] A clean Windows install produces zero detections
-- [ ] Service starts after reboot and recovers after being killed
-- [ ] A non-admin process cannot send commands over the pipe
+- [x] EICAR (or the test marker) in Downloads is detected by Quick scan and Full scan
+- [x] Detected file is quarantined, cannot be opened in place, and restores to its original path intact
+- [x] A Full scan of `C:\` finishes without crashing on locked, huge or permission-denied files
+- [x] A clean Windows install produces zero detections
+- [x] Service starts after reboot and recovers after being killed
+- [x] A non-admin process cannot send commands over the pipe

@@ -44,7 +44,7 @@ public sealed class ScanEngine
         var hashThreat = _db.LookupHash(sha256);
         if (hashThreat is not null)
         {
-            return new FileVerdict(path, VerdictKind.Detected, sha256, hashThreat, "hash");
+            return Detected(path, sha256, hashThreat, "hash");
         }
 
         try
@@ -52,7 +52,7 @@ public sealed class ScanEngine
             var matches = _yara.Match(data);
             if (matches.Count > 0)
             {
-                return new FileVerdict(path, VerdictKind.Detected, sha256, "Yara." + matches[0], "yara");
+                return Detected(path, sha256, "Yara." + matches[0], "yara");
             }
         }
         catch (Exception ex)
@@ -61,5 +61,17 @@ public sealed class ScanEngine
         }
 
         return new FileVerdict(path, VerdictKind.Clean, sha256);
+    }
+
+    /// <summary>
+    /// A match on a file with a valid trusted signature is reported as clean, with the reason: hash feeds such as
+    /// MalwareBazaar contain genuine Windows files, and quarantining those breaks the system.
+    /// </summary>
+    private static FileVerdict Detected(string path, string sha256, string threatName, string engine)
+    {
+        var signer = SignatureCheck.TrustedSigner(path);
+        return signer is null
+            ? new FileVerdict(path, VerdictKind.Detected, sha256, threatName, engine)
+            : new FileVerdict(path, VerdictKind.Clean, sha256, threatName, engine, $"{threatName} ignored: {signer}");
     }
 }

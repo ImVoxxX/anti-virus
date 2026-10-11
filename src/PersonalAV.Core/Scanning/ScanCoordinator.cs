@@ -194,6 +194,10 @@ public sealed class ScanCoordinator
         {
             case VerdictKind.Clean:
                 Interlocked.Increment(ref job.Scanned);
+                if (verdict.Reason is not null)
+                {
+                    _logger.LogWarning("Not quarantining {Path}: {Reason}", path, verdict.Reason);
+                }
                 break;
             case VerdictKind.Skipped:
                 Interlocked.Increment(ref job.Skipped);
