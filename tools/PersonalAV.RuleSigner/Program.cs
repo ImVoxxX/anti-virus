@@ -11,9 +11,10 @@ const string Usage = """
     Usage:
       pav-rulesigner keygen <private-key.pem>          Create a new signing key (keep it out of the repository)
       pav-rulesigner sign <private-key.pem> [rules]    Rebuild and sign rules\manifest.json after changing rules
-      pav-rulesigner release <private-key.pem> [--notes "text"] [--version X.Y.Z] [--dir folder] [--repo owner/name]
+      pav-rulesigner release <private-key.pem> [--notes "text"] [--tag name] [--version X.Y.Z] [--dir folder] [--repo owner/name]
                                                        Sign app\latest.json for the installers built in --dir
-                                                       (default artifacts\installer, version from Directory.Build.props)
+                                                       (default artifacts\installer, version from Directory.Build.props,
+                                                       --tag: the GitHub release tag, default v<version>)
       pav-rulesigner verify [--online] [rules]         Check the signed manifests; --online also downloads the
                                                        published installers and checks them
 
@@ -31,7 +32,7 @@ try
         "keygen" when args.Length == 2 => KeyGen(args[1]),
         "sign" when args.Length is 2 or 3 => Sign(args[1], RulesDir(args.ElementAtOrDefault(2))),
         "release" when args.Length >= 2 => Release(args[1], Option(args, "--notes"), Option(args, "--version"),
-            Option(args, "--dir"), Option(args, "--repo") ?? DefaultRepo),
+            Option(args, "--dir"), Option(args, "--repo") ?? DefaultRepo, Option(args, "--tag")),
         "verify" when positional.Count <= 1 && options.All(o => o == "--online") =>
             await Verify(RulesDir(positional.FirstOrDefault()), options.Contains("--online")),
         _ => Fail(Usage),
@@ -105,7 +106,7 @@ static int Sign(string privateKeyPath, string rulesDir)
     return 0;
 }
 
-static int Release(string privateKeyPath, string? notes, string? versionText, string? dir, string repo)
+static int Release(string privateKeyPath, string? notes, string? versionText, string? dir, string repo, string? tagName)
 {
     using var key = LoadKey(privateKeyPath);
     var root = RepoRoot();
@@ -115,6 +116,9 @@ static int Release(string privateKeyPath, string? notes, string? versionText, st
         return Fail($"'{versionText}' is not a version like 1.2.3.");
     }
     var v = AppVersion.Format(version);
+    // The release tag only shapes the download addresses; installed copies compare the signed version, not the tag.
+    var tag = string.IsNullOrWhiteSpace(tagName) ? $"v{v}" : tagName.Trim();
+    var tagPath = Uri.EscapeDataString(tag);
 
     var appDir = Path.Combine(root, "app");
     var manifestPath = Path.Combine(appDir, ReleaseManifest.FileName);
@@ -139,7 +143,7 @@ static int Release(string privateKeyPath, string? notes, string? versionText, st
         {
             continue;
         }
-        assets.Add(new ReleaseAsset(variant, $"https://github.com/{repo}/releases/download/v{v}/{name}",
+        assets.Add(new ReleaseAsset(variant, $"https://github.com/{repo}/releases/download/{tagPath}/{name}",
             ManifestSigning.Sha256OfFile(path), new FileInfo(path).Length));
         uploads.Add(path);
         Console.WriteLine($"  {variant,-14} {name}  {new FileInfo(path).Length:N0} bytes");
@@ -159,7 +163,7 @@ static int Release(string privateKeyPath, string? notes, string? versionText, st
         Version = v,
         Published = DateTimeOffset.UtcNow,
         Notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim(),
-        ReleaseUrl = $"https://github.com/{repo}/releases/tag/v{v}",
+        ReleaseUrl = $"https://github.com/{repo}/releases/tag/{tagPath}",
         Assets = assets,
     };
     var bytes = manifest.ToBytes();

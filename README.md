@@ -39,11 +39,11 @@ dotnet test
 Build the `.msi`. It publishes the apps itself, so this is the only command needed:
 
 ```powershell
-dotnet build installer -c Release                         # artifacts\installer\PersonalAV-0.2.0-x64.msi (about 4 MB)
+dotnet build installer -c Release                         # artifacts\installer\PersonalAV-1.2.0-x64.msi (about 4 MB)
 dotnet build installer -c Release -p:SelfContained=true   # ...-x64-selfcontained.msi, bundles .NET (about 90 MB)
 ```
 
-Double-click the `.msi`, or run `msiexec /i PersonalAV-0.2.0-x64.msi /qn` from an elevated prompt for a silent install.
+Double-click the `.msi`, or run `msiexec /i PersonalAV-1.2.0-x64.msi /qn` from an elevated prompt for a silent install.
 It installs to `%ProgramFiles%\PersonalAV`, creates and starts the `PersonalAV` service (automatic start, restarts
 on failure), adds `pav` to the system `PATH`, adds a **PersonalAV** Start menu entry, and registers a logon task that
 starts the tray app elevated for every administrator. The last page offers to open PersonalAV right away.
