@@ -169,19 +169,6 @@ bundled harmless marker:
 & $pav restore <id>          # file comes back byte-for-byte
 ```
 
-Until Part 2 adds exclusions, a restored file is detected again on the next scan.
-
-## Part 1 definition of done
-
-Checked by hand after installing:
-
-- [x] EICAR (or the test marker) in Downloads is detected by Quick scan and Full scan
-- [x] Detected file is quarantined, cannot be opened in place, and restores to its original path intact
-- [x] A Full scan of `C:\` finishes without crashing on locked, huge or permission-denied files
-- [x] A clean Windows install produces zero detections
-- [x] Service starts after reboot and recovers after being killed
-- [x] A non-admin process cannot send commands over the pipe
-
 ## License
 
 MIT. See [LICENSE](LICENSE). Third-party components (YARA via libyara.NET, Serilog, WiX, the .NET libraries) keep their own licenses.
